@@ -1,0 +1,118 @@
+#include "devicemanager.h"
+#include <QSqlQuery>
+#include <QSqlError>
+#include <QDebug>
+
+DeviceManager::DeviceManager(QObject *parent)
+    : QObject(parent)
+{
+}
+
+// ---------------------------------------------------------
+// CREAR (INSERT)
+// ---------------------------------------------------------
+bool DeviceManager::addDevice(Device *device)
+{
+    if (!device) return false;
+
+    QSqlQuery query;
+    // Preparamos la consulta SQL
+    query.prepare("INSERT INTO devices (user_id, name, type, ip_address, calibration) "
+                  "VALUES (:user, :name, :type, :ip, :cal)");
+
+    // Vinculamos los datos del objeto Device a la consulta
+    query.bindValue(":user", device->getUserId());
+    query.bindValue(":name", device->getName());
+    query.bindValue(":type", device->getType());
+    query.bindValue(":ip", device->getIp());
+    query.bindValue(":cal", device->getCalibration());
+
+    if (!query.exec()) {
+        qCritical() << "Error al agregar dispositivo:" << query.lastError().text();
+        return false;
+    }
+
+    qDebug() << "Dispositivo agregado correctamente.";
+    emit deviceListChanged(); // Avisar que hubo cambios
+    return true;
+}
+
+// ---------------------------------------------------------
+// LEER (SELECT)
+// ---------------------------------------------------------
+QList<Device*> DeviceManager::getDevicesByUser(int userId)
+{
+    QList<Device*> list;
+    QSqlQuery query;
+
+    // Pedimos todos los dispositivos que pertenezcan a este usuario
+    query.prepare("SELECT id, name, type, ip_address, calibration FROM devices WHERE user_id = :uid");
+    query.bindValue(":uid", userId);
+
+    if (query.exec()) {
+        while (query.next()) {
+            // Por cada fila encontrada, creamos un objeto Device nuevo en memoria
+            Device *dev = new Device();
+
+            // Rellenamos sus datos desde la BD
+            dev->setId(query.value("id").toInt());
+            dev->setUserId(userId);
+            dev->setName(query.value("name").toString());
+            dev->setType(query.value("type").toString());
+            dev->setIp(query.value("ip_address").toString());
+            dev->setCalibration(query.value("calibration").toDouble());
+
+            // Lo añadimos a la lista
+            list.append(dev);
+        }
+    } else {
+        qCritical() << "Error recuperando dispositivos:" << query.lastError().text();
+    }
+
+    return list;
+}
+
+// ---------------------------------------------------------
+// ACTUALIZAR (UPDATE)
+// ---------------------------------------------------------
+bool DeviceManager::updateDevice(Device *device)
+{
+    if (!device || device->getId() == -1) return false;
+
+    QSqlQuery query;
+    query.prepare("UPDATE devices SET name = :name, type = :type, "
+                  "ip_address = :ip, calibration = :cal WHERE id = :id");
+
+    query.bindValue(":name", device->getName());
+    query.bindValue(":type", device->getType());
+    query.bindValue(":ip", device->getIp());
+    query.bindValue(":cal", device->getCalibration());
+    query.bindValue(":id", device->getId());
+
+    if (!query.exec()) {
+        qCritical() << "Error actualizando dispositivo:" << query.lastError().text();
+        return false;
+    }
+
+    emit deviceListChanged();
+    return true;
+}
+
+// ---------------------------------------------------------
+// BORRAR (DELETE)
+// ---------------------------------------------------------
+bool DeviceManager::removeDevice(int deviceId)
+{
+    QSqlQuery query;
+    query.prepare("DELETE FROM devices WHERE id = :id");
+    query.bindValue(":id", deviceId);
+
+    if (!query.exec()) {
+        qCritical() << "Error eliminando dispositivo:" << query.lastError().text();
+        return false;
+    }
+
+    qDebug() << "Dispositivo eliminado (ID:" << deviceId << ")";
+    emit deviceListChanged();
+    return true;
+}

@@ -1,0 +1,28 @@
+# Archivos de compilación y temporales
+build/
+cmake-build-*/
+debug/
+release/
+*.o
+*.obj
+*.moc
+*.exe
+*.dll
+
+# Archivos de configuración de usuario de Qt Creator (IMPORTANTE NO SUBIR ESTO)
+*.user
+*.pro.user
+CMakeLists.txt.user
+
+# Archivos de cache de CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+
+# Archivos temporales del sistema
+.DS_Store
+Thumbs.db
+
+# Base de datos (Opcional: Si quieres subir una BD vacía, quita esta línea)
+*.sqlite
+*.db
