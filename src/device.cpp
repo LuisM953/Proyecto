@@ -1,9 +1,13 @@
 #include "device.h"
 #include <QDebug>
 
+// ---------------------------------------------------------
+// CONSTRUCTOR Y DESTRUCTOR
+// ---------------------------------------------------------
+
 Device::Device(QObject *parent)
     : QObject(parent)
-    , m_id(-1)             // -1 indica que aún no está en la BD
+    , m_id(-1)
     , m_userId(-1)
     , m_name("Nuevo Dispositivo")
     , m_type("Genérico")
@@ -19,8 +23,9 @@ Device::~Device()
 }
 
 // ---------------------------------------------------------
-// GETTERS Y SETTERS (Implementación)
+// GETTERS Y SETTERS
 // ---------------------------------------------------------
+
 void Device::setId(int id) { m_id = id; }
 int Device::getId() const { return m_id; }
 
@@ -47,10 +52,8 @@ bool Device::connectToDevice()
 {
     if (m_isConnected) return true;
 
-    // REQUERIMIENTO: "Simular un ping a su IP"
     qDebug() << "Haciendo Ping a" << m_ip << "...";
 
-    // Simulación de éxito
     if (!m_ip.isEmpty()) {
         m_isConnected = true;
         emit deviceConnected();
@@ -77,6 +80,6 @@ void Device::sendData(const QString &data)
         emit errorOccurred("Dispositivo desconectado");
         return;
     }
-    // Simulación de envío de configuración
+
     qDebug() << "Enviando configuración a" << m_ip << ":" << data;
 }

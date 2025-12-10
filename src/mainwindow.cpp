@@ -3,13 +3,14 @@
 #include "devicedialog.h"
 #include "devicemanager.h"
 #include "databasemanager.h"
-#include "registerdialog.h" // <--- NECESARIO para btnCreateUser
+#include "registerdialog.h"
 #include <QMessageBox>
 #include <QSqlTableModel>
-#include <QFile>        // <--- NECESARIO para Exportar
-#include <QTextStream>  // <--- NECESARIO para Exportar
-#include <QFileDialog>  // <--- NECESARIO para Exportar
-#include <QDir>         // <--- NECESARIO para Exportar
+#include <QFile>
+#include <QTextStream>
+#include <QFileDialog>
+#include <QDir>
+#include <QDebug>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -18,19 +19,18 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
-    // 1. Aplicar estilos visuales al iniciar
+    // Configuración visual inicial
     applyStyles();
 
-    // 2. Inicializar Base de Datos
+    // Inicialización de la base de datos y modelo
     if (m_dbManager.openDatabase()) {
-        // Configuramos la tabla UNA sola vez al inicio
         setupDevicesTable();
     } else {
         ui->lblStatus->setText("Error: No hay conexión a BD");
         ui->lblStatus->setStyleSheet("color: red;");
     }
 
-    // 3. Asegurarnos de empezar en la página de Login
+    // Iniciar siempre en la vista de Login
     ui->stackedWidget->setCurrentIndex(0);
 }
 
@@ -45,146 +45,138 @@ MainWindow::~MainWindow()
 // ---------------------------------------------------------
 // CONFIGURACIÓN DE LA TABLA
 // ---------------------------------------------------------
+
 void MainWindow::setupDevicesTable()
 {
     if (m_model == nullptr) {
         m_model = new QSqlTableModel(this, m_dbManager.getDatabase());
     }
 
-    // 1. Asignar tabla y cargar datos
+    // Configuración del modelo
     m_model->setTable("devices");
     m_model->select();
 
-    // 2. Usar fieldIndex para encontrar las columnas sin importar el orden
+    // Mapeo dinámico de columnas por nombre (independiente del orden en BD)
     int idxName = m_model->fieldIndex("name");
     int idxType = m_model->fieldIndex("type");
     int idxIp   = m_model->fieldIndex("ip_address");
-
-    // Verificamos si existe calibración
     int idxCal  = m_model->fieldIndex("calibration");
 
-    // 3. Asignar nombres bonitos (Headers)
+    // Asignación de encabezados
     if(idxName != -1) m_model->setHeaderData(idxName, Qt::Horizontal, "Nombre");
     if(idxType != -1) m_model->setHeaderData(idxType, Qt::Horizontal, "Tipo");
     if(idxIp != -1)   m_model->setHeaderData(idxIp,   Qt::Horizontal, "Dirección IP");
     if(idxCal != -1)  m_model->setHeaderData(idxCal,  Qt::Horizontal, "Calibración");
 
-    // 4. Asignar modelo a la vista
+    // Asignación a la vista
     ui->tableDevices->setModel(m_model);
 
-    // 5. Ocultar columnas internas (ID y User_ID)
+    // Ocultar columnas internas (IDs)
     ui->tableDevices->setColumnHidden(m_model->fieldIndex("id"), true);
     ui->tableDevices->setColumnHidden(m_model->fieldIndex("user_id"), true);
 
-    // 6. Configuración visual
+    // Configuración visual de la tabla
     ui->tableDevices->setEditTriggers(QAbstractItemView::NoEditTriggers);
     ui->tableDevices->setAlternatingRowColors(true);
 
-    // Ajuste de tamaño (Estirar columnas)
     QHeaderView *header = ui->tableDevices->horizontalHeader();
     header->setSectionResizeMode(QHeaderView::Stretch);
 }
 
 // ---------------------------------------------------------
-// LOGIN
+// GESTIÓN DE SESIÓN (LOGIN / LOGOUT)
 // ---------------------------------------------------------
+
 void MainWindow::on_btnLogin_clicked()
 {
     QString user = ui->inputUser->text();
     QString pass = ui->inputPassword->text();
 
     if (m_user.login(user, pass)) {
-        // --- ÉXITO ---
+        // Registro de auditoría
         m_dbManager.insertLog("Login", "Usuario " + user + " inició sesión.");
 
-        // --- CORRECCIÓN CLAVE: NO llamamos a setTable aquí ---
+        // Refrescar datos de la tabla sin reiniciar la configuración
         if (m_model) {
-            m_model->setFilter(""); // Limpiar filtros viejos
-            m_model->select();      // Refrescar datos
+            m_model->setFilter("");
+            m_model->select();
         }
-        // ----------------------------------------------------
 
+        // Cambio de vista y actualización de UI
         ui->stackedWidget->setCurrentIndex(1);
-
         ui->lblWelcome->setText("Bienvenido, " + m_user.getUsername() +
                                 " (" + m_user.getRole() + ")");
 
         ui->inputPassword->clear();
         ui->lblStatus->clear();
 
-        // Seguridad de botones
-        if (m_user.isAdmin()) {
+        // 1. Imprimir en consola qué rol detectó realmente (revisa la pestaña "Application Output")
+        qDebug() << "ROL DETECTADO EN BD:" << m_user.getRole();
+
+        // 2. Verificación Robusta: Convertimos a minúsculas para evitar errores de "Admin" vs "admin"
+        QString roleLower = m_user.getRole().toLower().trimmed(); // trimmed() quita espacios extra
+
+        if (m_user.isAdmin() || roleLower == "admin" || roleLower == "administrator") {
             ui->btnCreateUser->setVisible(true);
         } else {
             ui->btnCreateUser->setVisible(false);
         }
+        // ---------------------------------------
 
     } else {
-        // --- FALLO ---
         ui->lblStatus->setText("Usuario o contraseña incorrectos");
         ui->lblStatus->setStyleSheet("color: red; font-weight: bold;");
     }
 }
 
-// ---------------------------------------------------------
-// LOGOUT
-// ---------------------------------------------------------
 void MainWindow::on_btnLogout_clicked()
 {
-    // 1. Borrar la sesión del objeto User
     m_user.logout();
 
-    // 2. Volver al Login
+    // Retorno al login y limpieza
     ui->stackedWidget->setCurrentIndex(0);
-
-    // 3. Limpiar UI
     ui->inputUser->clear();
     ui->inputPassword->clear();
     ui->lblStatus->setText("Sesión cerrada.");
     ui->lblStatus->setStyleSheet("color: green;");
-    ui->btnCreateUser->setVisible(false); // Ocultar por seguridad
+    ui->btnCreateUser->setVisible(false);
 
-    // 4. Ocultar datos de la tabla
+    // Ocultar datos sensibles del modelo
     if(m_model) {
         m_model->setFilter("1=0");
     }
 }
 
 // ---------------------------------------------------------
-// AGREGAR DISPOSITIVO
+// OPERACIONES CRUD (DISPOSITIVOS)
 // ---------------------------------------------------------
+
 void MainWindow::on_btnAddDevice_clicked()
 {
     DeviceDialog dialog(this);
 
     if (dialog.exec() == QDialog::Accepted) {
-
         Device *newDevice = dialog.getDeviceInfo();
 
-        // Usar el ID del usuario real logueado
+        // Asignar dispositivo al usuario actual
         int currentUserId = m_user.getId();
-        if (currentUserId <= 0) currentUserId = 1; // Fallback
+        if (currentUserId <= 0) currentUserId = 1;
 
         newDevice->setUserId(currentUserId);
 
         DeviceManager devManager;
         if (devManager.addDevice(newDevice)) {
             QMessageBox::information(this, "Éxito", "Dispositivo guardado.");
-
             if (m_model) {
                 m_model->select();
             }
         } else {
             QMessageBox::critical(this, "Error", "No se pudo guardar en la BD.");
         }
-
         delete newDevice;
     }
 }
 
-// ---------------------------------------------------------
-// BORRAR DISPOSITIVO
-// ---------------------------------------------------------
 void MainWindow::on_btnDeleteDevice_clicked()
 {
     QModelIndexList selectedRows = ui->tableDevices->selectionModel()->selectedRows();
@@ -213,9 +205,6 @@ void MainWindow::on_btnDeleteDevice_clicked()
     }
 }
 
-// ---------------------------------------------------------
-// EDITAR DISPOSITIVO
-// ---------------------------------------------------------
 void MainWindow::on_btnEditDevice_clicked()
 {
     QModelIndexList selectedRows = ui->tableDevices->selectionModel()->selectedRows();
@@ -226,7 +215,7 @@ void MainWindow::on_btnEditDevice_clicked()
 
     int row = selectedRows.at(0).row();
 
-    // Obtener datos usando fieldIndex para mayor seguridad
+    // Recuperación de datos del modelo usando índices seguros
     int idxId = m_model->fieldIndex("id");
     int idxUser = m_model->fieldIndex("user_id");
     int idxName = m_model->fieldIndex("name");
@@ -245,6 +234,7 @@ void MainWindow::on_btnEditDevice_clicked()
         calib = m_model->data(m_model->index(row, idxCal)).toDouble();
     }
 
+    // Configuración del objeto temporal
     Device tempDev;
     tempDev.setId(id);
     tempDev.setUserId(userId);
@@ -259,7 +249,7 @@ void MainWindow::on_btnEditDevice_clicked()
     if (dialog.exec() == QDialog::Accepted) {
         Device *modifiedDev = dialog.getDeviceInfo();
 
-        // Preservar ID original y UserID
+        // Preservar integridad referencial
         modifiedDev->setId(id);
         modifiedDev->setUserId(userId);
 
@@ -270,31 +260,28 @@ void MainWindow::on_btnEditDevice_clicked()
         } else {
             QMessageBox::critical(this, "Error", "No se pudo actualizar.");
         }
-
         delete modifiedDev;
     }
 }
 
 // ---------------------------------------------------------
-// BUSCADOR
+// FUNCIONALIDADES ADICIONALES (BUSCAR, EXPORTAR, ADMIN)
 // ---------------------------------------------------------
+
 void MainWindow::on_txtSearch_textChanged(const QString &arg1)
 {
     if (!m_model) return;
 
     if (arg1.isEmpty()) {
         m_model->setFilter("");
-    }
-    else {
+    } else {
+        // Filtro SQL para búsqueda parcial en nombre o IP
         QString filter = QString("name LIKE '%%1%' OR ip_address LIKE '%%1%'").arg(arg1);
         m_model->setFilter(filter);
     }
     m_model->select();
 }
 
-// ---------------------------------------------------------
-// EXPORTAR A CSV
-// ---------------------------------------------------------
 void MainWindow::on_btnExport_clicked()
 {
     if (!m_model || m_model->rowCount() == 0) {
@@ -317,16 +304,17 @@ void MainWindow::on_btnExport_clicked()
 
     QTextStream out(&file);
 
-    // Escribir cabeceras
+    // Escribir encabezados
     QStringList headers;
     headers << "ID" << "Usuario_ID" << "Nombre" << "Tipo" << "IP" << "Calibracion";
     out << headers.join(";") << "\n";
 
-    // Escribir datos
+    // Escribir filas
     for (int row = 0; row < m_model->rowCount(); ++row) {
         QStringList rowData;
         for (int col = 0; col < m_model->columnCount(); ++col) {
             QString data = m_model->data(m_model->index(row, col)).toString();
+            // Sanitización básica para formato CSV
             data.replace(";", ",");
             rowData << data;
         }
@@ -337,9 +325,6 @@ void MainWindow::on_btnExport_clicked()
     QMessageBox::information(this, "Éxito", "Datos exportados correctamente a:\n" + fileName);
 }
 
-// ---------------------------------------------------------
-// CREAR USUARIO (Solo Admin)
-// ---------------------------------------------------------
 void MainWindow::on_btnCreateUser_clicked()
 {
     RegisterDialog dialog(this);
@@ -349,6 +334,7 @@ void MainWindow::on_btnCreateUser_clicked()
 // ---------------------------------------------------------
 // ESTILOS VISUALES
 // ---------------------------------------------------------
+
 void MainWindow::applyStyles()
 {
     QString style = R"(
